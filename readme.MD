@@ -83,3 +83,5 @@ Use as teclas a seguir para controlar a direção da cobra:
 - **S**: Mover para baixo
 - **A**: Mover para a esquerda
 - **D**: Mover para a direita
+
+Link do GDB: https://www.onlinegdb.com/edit/xTukmp-rU
