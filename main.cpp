@@ -1,29 +1,25 @@
 #include <iostream>
 #include <thread>
-#include <semaphore>
 #include <mutex>
 #include <condition_variable>
 #include <random>
-#include <map>
 
 using namespace std;
 
 class PedraPapelTesoura {
 private:
-    binary_semaphore semaforo_rodada{1}; // Controla o início da rodada
     mutex mtx;
     condition_variable cv;
-    map<int, int> derrotas; // Contador de derrotas de cada jogador
-    map<int, int> escolhas; // Escolhas de cada jogador (1: Pedra, 2: Papel, 3: Tesoura)
+    int escolha_jogador1;
+    int escolha_jogador2;
+    int derrotas_jogador1 = 0;
+    int derrotas_jogador2 = 0;
+    bool rodada_em_andamento = false;
     bool fim_do_jogo = false;
-    int jogadores_prontos = 0;
+    bool modo_automatico; // Indica se o jogo é automático ou manual
 
 public:
-    PedraPapelTesoura() {
-        derrotas[1] = 0;
-        derrotas[2] = 0;
-        derrotas[3] = 0;
-    }
+    PedraPapelTesoura(bool auto_mode) : escolha_jogador1(0), escolha_jogador2(0), modo_automatico(auto_mode) {}
 
     // Função para gerar uma escolha aleatória: 1 = Pedra, 2 = Papel, 3 = Tesoura
     int escolhaAleatoria() {
@@ -33,96 +29,110 @@ public:
         return dis(gen);
     }
 
-    // Inicializa a escolha de cada jogador
-    void inicializarEscolhas() {
-        escolhas[1] = escolhaAleatoria();
-        escolhas[2] = escolhaAleatoria();
-        escolhas[3] = escolhaAleatoria();
-
-        cout << "Jogador 1 escolheu: " << escolhaParaTexto(escolhas[1]) << endl;
-        cout << "Jogador 2 escolheu: " << escolhaParaTexto(escolhas[2]) << endl;
-        cout << "Jogador 3 escolheu: " << escolhaParaTexto(escolhas[3]) << endl;
-    }
-
     // Função para traduzir escolha em texto
     string escolhaParaTexto(int escolha) {
         return (escolha == 1) ? "Pedra" : (escolha == 2) ? "Papel" : "Tesoura";
     }
 
-    // Função para comparar escolhas de dois jogadores
-    int comparar(int jogador1, int jogador2) {
-        int escolha1 = escolhas[jogador1];
-        int escolha2 = escolhas[jogador2];
+    // Função para o jogador fazer sua escolha (manual para jogador 1 e automático para jogador 2)
+    void escolher(int jogador) {
+        unique_lock<mutex> lock(mtx);
 
-        if (escolha1 == escolha2) {
-            cout << "Empate entre jogador " << jogador1 << " e jogador " << jogador2 << "!" << endl;
-            return jogador1; // Empate, retorna o primeiro
+        int escolha;
+        if (jogador == 1) {
+            if (modo_automatico) {
+                escolha = escolhaAleatoria(); // Escolha aleatória no modo automático
+            } else {
+                // Modo manual: jogador 1 escolhe
+                cout << "Jogador 1, escolha sua jogada (1 = Pedra, 2 = Papel, 3 = Tesoura): ";
+                cin >> escolha;
+                while (escolha < 1 || escolha > 3) {
+                    cout << "Escolha inválida. Tente novamente (1 = Pedra, 2 = Papel, 3 = Tesoura): ";
+                    cin >> escolha;
+                }
+            }
+            escolha_jogador1 = escolha;
+            cout << "Jogador 1 escolheu: " << escolhaParaTexto(escolha_jogador1) << endl;
+        } else if (jogador == 2) {
+            escolha_jogador2 = escolhaAleatoria(); // Escolha aleatória para o jogador 2
+            cout << "Jogador 2 (Computador) escolheu: " << escolhaParaTexto(escolha_jogador2) << endl;
         }
-        if ((escolha1 == 1 && escolha2 == 3) || (escolha1 == 2 && escolha2 == 1) || (escolha1 == 3 && escolha2 == 2)) {
-            cout << "Jogador " << jogador1 << " vence contra jogador " << jogador2 << endl;
-            derrotas[jogador2]++; // Jogador 2 perde
-            return jogador1;
+
+        // Se ambos os jogadores fizeram suas escolhas, inicia a rodada
+        if (escolha_jogador1 != 0 && escolha_jogador2 != 0) {
+            rodada_em_andamento = true;
+            cv.notify_all();
         } else {
-            cout << "Jogador " << jogador2 << " vence contra jogador " << jogador1 << endl;
-            derrotas[jogador1]++; // Jogador 1 perde
-            return jogador2;
+            cv.wait(lock, [this] { return rodada_em_andamento; });
         }
     }
 
-    // Função principal da rodada
-    void rodada() {
+    // Função para comparar escolhas e decidir o vencedor
+    void compararEscolhas() {
+        unique_lock<mutex> lock(mtx);
+
+        // Espera até que ambos os jogadores tenham feito suas escolhas
+        cv.wait(lock, [this] { return rodada_em_andamento; });
+
+        cout << "Comparando escolhas..." << endl;
+
+        if (escolha_jogador1 == escolha_jogador2) {
+            cout << "Empate!" << endl;
+        } else if ((escolha_jogador1 == 1 && escolha_jogador2 == 3) ||
+                   (escolha_jogador1 == 2 && escolha_jogador2 == 1) ||
+                   (escolha_jogador1 == 3 && escolha_jogador2 == 2)) {
+            cout << "Jogador 1 vence a rodada!" << endl;
+            derrotas_jogador2++;
+        } else {
+            cout << "Jogador 2 vence a rodada!" << endl;
+            derrotas_jogador1++;
+        }
+
+        // Reseta escolhas para a próxima rodada
+        escolha_jogador1 = 0;
+        escolha_jogador2 = 0;
+        rodada_em_andamento = false;
+
+        // Verifica se alguém perdeu o jogo (3 derrotas)
+        if (derrotas_jogador1 == 3) {
+            cout << "Jogador 2 é o vencedor do jogo! Jogador 1 perdeu com 3 derrotas." << endl;
+            fim_do_jogo = true;
+            cv.notify_all();
+        } else if (derrotas_jogador2 == 3) {
+            cout << "Jogador 1 é o vencedor do jogo! Jogador 2 perdeu com 3 derrotas." << endl;
+            fim_do_jogo = true;
+            cv.notify_all();
+        } else {
+            cv.notify_all();
+        }
+    }
+
+    // Função principal para rodar o jogo
+    void jogar() {
         while (!fim_do_jogo) {
-            // Controle de início da rodada
-            semaforo_rodada.acquire();
-            inicializarEscolhas();
+            thread jogador1(&PedraPapelTesoura::escolher, this, 1);
+            thread jogador2(&PedraPapelTesoura::escolher, this, 2);
 
-            unique_lock<mutex> lock(mtx);
+            compararEscolhas();
 
-            // Compara jogadores na ordem: 1 com 2, depois o ganhador com 3
-            int vencedor = comparar(1, 2);
-            vencedor = comparar(vencedor, 3);
-
-            // Verifica eliminações
-            verificarEliminados();
-
-            jogadores_prontos++;
-            cv.notify_all(); // Libera as threads para a próxima rodada
+            jogador1.join();
+            jogador2.join();
 
             if (!fim_do_jogo) {
-                lock.unlock();
-                this_thread::sleep_for(chrono::seconds(2));
-                semaforo_rodada.release(); // Libera o semáforo para a próxima rodada
+                // Pausa para próxima rodada
+                this_thread::sleep_for(chrono::seconds(1));
             }
-        }
-    }
-
-    // Função para verificar eliminações e declarar o vencedor final
-    void verificarEliminados() {
-        for (auto it = derrotas.begin(); it != derrotas.end();) {
-            if (it->second >= 3) {
-                cout << "Jogador " << it->first << " foi eliminado com 3 derrotas." << endl;
-                it = derrotas.erase(it);
-            } else {
-                ++it;
-            }
-        }
-
-        // Verifica se restou apenas um jogador
-        if (derrotas.size() == 1) {
-            fim_do_jogo = true;
-            cout << "Jogador " << derrotas.begin()->first << " é o vencedor final!" << endl;
         }
     }
 };
 
 int main() {
-    PedraPapelTesoura jogo;
+    char modo;
+    cout << "Deseja jogar manualmente ou deixar o computador jogar sozinho? (m = manual, a = automático): ";
+    cin >> modo;
+    bool auto_mode = (modo == 'a');
 
-    // Inicia uma thread para rodadas
-    thread t(&PedraPapelTesoura::rodada, &jogo);
-
-    // Espera o fim do jogo
-    t.join();
-
+    PedraPapelTesoura jogo(auto_mode);
+    jogo.jogar();
     return 0;
 }
