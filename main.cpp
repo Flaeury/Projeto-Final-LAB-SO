@@ -4,10 +4,9 @@
 #include <chrono>
 #include <cstdlib>
 #include <ncurses.h>
-#include <semaphore.h>
 
-const int LARGURA = 20;  // Largura do campo
-const int ALTURA = 10;   // Altura do campo
+const int LARGURA = 30;  // Largura do campo
+const int ALTURA = 20;   // Altura do campo
 const char COMIDA = '*';
 const char CORPO_COBRA = 'O';
 const char VAZIO = ' ';
@@ -22,11 +21,12 @@ struct Cobra {
 
 Cobra cobra = {LARGURA / 2, ALTURA / 2, 1, {{LARGURA / 2, ALTURA / 2}}};
 int comidaX, comidaY; // Posição da comida
-sem_t semaforo;      // Semáforo para controle de acesso
 
 void gerarComida() {
-    comidaX = rand() % LARGURA;
-    comidaY = rand() % ALTURA;
+    do {
+        comidaX = rand() % LARGURA;
+        comidaY = rand() % ALTURA;
+    } while (comidaX == cobra.x && comidaY == cobra.y); // Garante que a comida não aparece na cabeça da cobra
 }
 
 void desenhar() {
@@ -81,19 +81,6 @@ bool checarColisao() {
 
 void moverCobra() {
     while (true) {
-        sem_wait(&semaforo); // Aguarda o semáforo
-        // Esta chamada bloqueia a thread da cobra até que o
-        // semáforo esteja disponível (ou seja, até que seu valor seja maior que zero). Se
-        // o semáforo estiver disponível, o valor é reduzido em 1, permitindo que a
-        // thread continue sua execução.
-
-        // Lê a tecla pressionada
-        int tecla = getch();
-        if (tecla == 'w' && cobra.direcao != 's') cobra.direcao = 'w';
-        else if (tecla == 's' && cobra.direcao != 'w') cobra.direcao = 's';
-        else if (tecla == 'a' && cobra.direcao != 'd') cobra.direcao = 'a';
-        else if (tecla == 'd' && cobra.direcao != 'a') cobra.direcao = 'd';
-
         // Move a cobra
         if (cobra.direcao == 'w') cobra.y--;
         else if (cobra.direcao == 's') cobra.y++;
@@ -124,38 +111,37 @@ void moverCobra() {
         }
 
         desenhar(); // Desenha o jogo
-        sem_post(&semaforo); // Libera o semáforo
+        std::this_thread::sleep_for(std::chrono::milliseconds(200)); // Controle de velocidade
+    }
+}
 
-        std::this_thread::sleep_for(std::chrono::milliseconds(100)); // Controle de velocidade
+void lerEntrada() {
+    while (true) {
+        // Lê a tecla pressionada
+        int tecla = getch();
+        if (tecla == 'w' && cobra.direcao != 's') cobra.direcao = 'w';
+        else if (tecla == 's' && cobra.direcao != 'w') cobra.direcao = 's';
+        else if (tecla == 'a' && cobra.direcao != 'd') cobra.direcao = 'a';
+        else if (tecla == 'd' && cobra.direcao != 'a') cobra.direcao = 'd';
     }
 }
 
 int main() {
-    srand(time(0));
+    srand(static_cast<unsigned>(time(0))); // Semente para o gerador de números aleatórios
     initscr(); // Inicializa o modo ncurses
     cbreak(); // Desativa o buffer de linha
     noecho(); // Não mostra a entrada do usuário
     keypad(stdscr, TRUE); // Habilita leitura de teclas de função
 
     gerarComida(); // Gera a primeira comida
-    sem_init(&semaforo, 0, 1); // Inicializa o semáforo
-    // Inicializa o semáforo. O segundo argumento (0)
-    // indica que o semáforo é usado entre threads do mesmo processo. O terceiro
-    // argumento (1) define o valor inicial do semáforo, permitindo uma thread a
-    // acessar o recurso por vez.
-
-    //Dentro da seção protegida pelo semáforo, a thread pode atualizar a
-    //posição da cobra, verificar colisões e modificar o corpo da cobra sem se
-    //preocupar que outra thread modifique esses dados ao mesmo tempo.
+    cobra.direcao = 'd'; // Inicializa a direção da cobra
 
     std::thread cobraThread(moverCobra);
-    // A função que será executada na nova thread. Isso permite que o
-    //jogo continue a rodar enquanto a cobra se move e responde às entradas.
+    std::thread entradaThread(lerEntrada); // Nova thread para ler a entrada
 
-    // Espera o thread da cobra terminar
-    cobraThread.join();
+    cobraThread.join(); // Espera o thread da cobra terminar
+    entradaThread.detach(); // Desanexa a thread de entrada
 
-    sem_destroy(&semaforo); // Destrói o semáforo
     endwin(); // Finaliza o modo ncurses
     return 0;
 }
