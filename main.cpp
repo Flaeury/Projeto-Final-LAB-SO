@@ -82,6 +82,10 @@ bool checarColisao() {
 void moverCobra() {
     while (true) {
         sem_wait(&semaforo); // Aguarda o semáforo
+        // Esta chamada bloqueia a thread da cobra até que o
+        // semáforo esteja disponível (ou seja, até que seu valor seja maior que zero). Se
+        // o semáforo estiver disponível, o valor é reduzido em 1, permitindo que a
+        // thread continue sua execução.
 
         // Lê a tecla pressionada
         int tecla = getch();
@@ -121,6 +125,7 @@ void moverCobra() {
 
         desenhar(); // Desenha o jogo
         sem_post(&semaforo); // Libera o semáforo
+
         std::this_thread::sleep_for(std::chrono::milliseconds(100)); // Controle de velocidade
     }
 }
@@ -134,8 +139,18 @@ int main() {
 
     gerarComida(); // Gera a primeira comida
     sem_init(&semaforo, 0, 1); // Inicializa o semáforo
+    // Inicializa o semáforo. O segundo argumento (0)
+    // indica que o semáforo é usado entre threads do mesmo processo. O terceiro
+    // argumento (1) define o valor inicial do semáforo, permitindo uma thread a
+    // acessar o recurso por vez.
+
+    //Dentro da seção protegida pelo semáforo, a thread pode atualizar a
+    //posição da cobra, verificar colisões e modificar o corpo da cobra sem se
+    //preocupar que outra thread modifique esses dados ao mesmo tempo.
 
     std::thread cobraThread(moverCobra);
+    // A função que será executada na nova thread. Isso permite que o
+    //jogo continue a rodar enquanto a cobra se move e responde às entradas.
 
     // Espera o thread da cobra terminar
     cobraThread.join();
